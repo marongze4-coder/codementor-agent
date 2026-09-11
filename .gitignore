@@ -1,0 +1,48 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Runtime output
+logs/
+*.log
+uploads/
+storage/
+tmp/
+
+# Local model weights (keep locally; do not upload multi-GB checkpoints)
+backend/models/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Learning scratch files and local databases
+review/
+understant_sse/
+samples/
+backend/agents/resume/resume.json
+*.docx
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

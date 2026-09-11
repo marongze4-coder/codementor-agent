@@ -1,0 +1,2 @@
+# Backward-compatible alias for the original misspelled filename.
+-r requirements.txt
