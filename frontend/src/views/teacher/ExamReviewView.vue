@@ -2,15 +2,15 @@
   <div class="exam-review">
     <el-card>
       <template #header>
-        <span>待确认批改列表</span>
+        <span>综合作业三轨批改确认</span>
         <el-button style="float: right" :icon="Refresh" circle size="small" @click="fetchList" />
       </template>
 
       <el-table :data="list" v-loading="loading" size="default">
         <el-table-column prop="student_name" label="学员" width="120" />
-        <el-table-column prop="exam_title" label="试卷" />
+        <el-table-column prop="exam_title" label="综合作业" />
         <el-table-column prop="submitted_at" label="提交时间" width="180" />
-        <el-table-column label="AI 预评分" width="120">
+        <el-table-column label="自动预评分" width="120">
           <template #default="{ row }">
             {{ row.pre_review?.total_score }} / {{ row.pre_review?.full_score }}
           </template>
@@ -36,7 +36,7 @@
 
         <!-- 汇总信息 -->
         <el-descriptions :column="3" border size="small" style="margin-bottom: 16px">
-          <el-descriptions-item label="AI 预评分">
+          <el-descriptions-item label="自动预评分">
             <b>{{ currentReview.pre_review_summary?.total_score }}</b>
             / {{ currentReview.pre_review_summary?.full_score }} 分
           </el-descriptions-item>
@@ -103,9 +103,9 @@
                 </div>
               </div>
 
-              <!-- AI 反馈 -->
+              <!-- 自动批改反馈 -->
               <div class="q-section">
-                <div class="q-label">AI 批改反馈</div>
+                <div class="q-label">自动批改反馈</div>
                 <div class="q-feedback">{{ q.ai_feedback }}</div>
               </div>
 
@@ -123,9 +123,27 @@
 
               <!-- 代码题：测试用例 -->
               <div v-if="q.question_type === 'code'" class="q-section">
-                <div class="q-label">测试用例</div>
-                <span v-if="q.sandbox_skipped" style="color:#909399">Judge0 沙箱跳过</span>
-                <span v-else>通过 {{ q.test_cases_passed }} / {{ q.test_cases_total }}</span>
+                <div class="q-label">Docker 功能测试与 AST 质量分析</div>
+                <el-descriptions :column="3" border size="small">
+                  <el-descriptions-item label="功能分">{{ q.functional_score ?? 0 }}/100</el-descriptions-item>
+                  <el-descriptions-item label="质量分">{{ q.quality_score ?? 0 }}/100</el-descriptions-item>
+                  <el-descriptions-item label="综合比例">{{ q.automatic_percent ?? 0 }}/100</el-descriptions-item>
+                </el-descriptions>
+                <div style="margin-top: 8px">测试通过 {{ q.test_cases_passed ?? 0 }} / {{ q.test_cases_total ?? 0 }}</div>
+                <el-table v-if="q.test_results?.length" :data="q.test_results" size="small" style="margin-top: 8px">
+                  <el-table-column prop="name" label="测试用例" />
+                  <el-table-column label="结果" width="90">
+                    <template #default="{ row }"><el-tag :type="row.passed ? 'success' : 'danger'" size="small">{{ row.passed ? '通过' : '失败' }}</el-tag></template>
+                  </el-table-column>
+                  <el-table-column prop="duration_ms" label="耗时(ms)" width="100" />
+                  <el-table-column prop="stderr" label="错误信息" />
+                </el-table>
+                <div v-if="q.issues?.length" style="margin-top: 8px">
+                  <div v-for="issue in q.issues" :key="`${issue.title}-${issue.line}`" class="issue-row">
+                    <el-tag size="small" :type="issue.severity === 'high' || issue.severity === 'critical' ? 'danger' : 'warning'">{{ issue.severity }}</el-tag>
+                    <span>{{ issue.title }}<template v-if="issue.line">（第 {{ issue.line }} 行）</template>：{{ issue.suggestion }}</span>
+                  </div>
+                </div>
               </div>
 
               <!-- 教师改分区 -->
@@ -154,7 +172,7 @@
         <!-- 操作栏 -->
         <div class="action-bar">
           <div style="font-size:13px; color:#606266">
-            <span v-if="changedCount === 0">AI 批改结果未做修改，点击确认直接发布。</span>
+            <span v-if="changedCount === 0">自动批改结果未做修改，点击确认直接发布。</span>
             <span v-else>已修改 <b>{{ changedCount }}</b> 题分数，确认后以修改值为准发布。</span>
           </div>
           <div style="display:flex; gap:10px; margin-top:10px">
@@ -369,4 +387,5 @@ onMounted(fetchList)
   padding-top: 16px;
   border-top: 1px solid #e4e7ed;
 }
+.issue-row { display: flex; align-items: flex-start; gap: 8px; margin: 5px 0; }
 </style>

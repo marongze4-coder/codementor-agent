@@ -1980,10 +1980,8 @@
 {"text": "课程里的 interrupt() 在哪个节点调用", "label": "specialized"}
 {"text": "实战项目里的 Command(resume=...) 是用来做什么的", "label": "specialized"}
 {"text": "我们课程的四大 Agent 分别是什么", "label": "specialized"}
-{"text": "老师演示的简历审查 Agent 有几个并行维度", "label": "specialized"}
 {"text": "实战里的简历评分六个维度分别是什么", "label": "specialized"}
 {"text": "我们项目里的试卷批改 Agent 支持哪些题型", "label": "specialized"}
-{"text": "课程里的模拟面试 Agent 是怎么设计对话状态的", "label": "specialized"}
 {"text": "实战中的 Orchestrator 是怎么路由不同 Agent 的", "label": "specialized"}
 {"text": "我们课程里 Agent 的三层兜底机制是什么", "label": "specialized"}
 {"text": "老师说的 with_structured_output 为什么要加 method='function_calling'", "label": "specialized"}
@@ -2018,7 +2016,6 @@
 {"text": "我们课程里的批改状态流转有哪几个阶段", "label": "specialized"}
 {"text": "老师讲的 exam_reviews 表里有哪些字段", "label": "specialized"}
 {"text": "实战中的面试评分是怎么做双轨对比的", "label": "specialized"}
-{"text": "我们课程里的 interview_sessions 表结构是什么", "label": "specialized"}
 {"text": "课程里的 pending_review 状态是什么时候进入的", "label": "specialized"}
 {"text": "实战项目里 HitL 人工审核接口是什么", "label": "specialized"}
 {"text": "我们电商项目里的商品分类模型是怎么训练的", "label": "specialized"}

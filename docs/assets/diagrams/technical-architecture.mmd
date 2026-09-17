@@ -1,0 +1,23 @@
+flowchart TB
+    UI[Vue 3 + TypeScript<br/>学生端 / 教师端] --> API[FastAPI API 层<br/>Pydantic + JWT]
+    API --> ROUTER[统一入口与意图路由]
+    ROUTER --> QA[程序设计问答 Agent]
+    ROUTER --> ASSIGN[编程作业评测 Agent]
+    ROUTER --> REVIEW[代码质量审查 Agent]
+    ROUTER --> DEFENSE[项目答辩 Agent]
+
+    QA --> RAG[BGE-M3 + Milvus + Reranker]
+    ASSIGN --> SANDBOX[Docker 代码沙箱]
+    ASSIGN -.复用.-> REVIEW
+    ASSIGN -.评测结果.-> DEFENSE
+    REVIEW -.代码问题.-> DEFENSE
+
+    QA --> DB[(PostgreSQL)]
+    ASSIGN --> DB
+    REVIEW --> DB
+    DEFENSE --> DB
+
+    CORE[LLM Factory / Retry / Logger / Memory] -.公共能力.-> QA
+    CORE -.公共能力.-> ASSIGN
+    CORE -.公共能力.-> REVIEW
+    CORE -.公共能力.-> DEFENSE

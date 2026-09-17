@@ -1,0 +1,19 @@
+flowchart TD
+    S[学生问题] --> C[classify_query]
+    C -->|GENERAL| G[generate_general]
+    C -->|GENERAL + 联网| W[web_search]
+    C -->|PRECISE| R[retrieve]
+    C -->|VAGUE| H[hyde_generate]
+    C -->|BROAD| M[multi_query_rewrite]
+    H --> R
+    M --> R
+    R -->|高置信度| RG[generate_rag]
+    R -->|低置信度 + 联网| W
+    R -->|低置信度 + 不联网| D[generate_direct]
+    W -->|普通问题| G
+    W -->|课程检索不足| D
+    D --> P[enqueue_pending]
+    RG --> SM[save_memory]
+    G --> SM
+    P --> SM
+    SM --> E[结束]

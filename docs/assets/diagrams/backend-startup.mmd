@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant U as Uvicorn
+    participant M as backend/main.py
+    participant DB as PostgreSQL
+    participant LM as 本地模型
+    participant MCP as MCP 子应用
+
+    U->>M: 导入 FastAPI 应用
+    M->>M: 读取 .env.local
+    U->>M: 进入 lifespan
+    M->>DB: 执行幂等数据库迁移
+    M->>LM: 并行预热分类器、BGE-M3、Reranker
+    M->>MCP: 启动知识库与联网搜索子应用
+    M-->>U: 应用可接收请求

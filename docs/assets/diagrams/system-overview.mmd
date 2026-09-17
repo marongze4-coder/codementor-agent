@@ -1,0 +1,35 @@
+flowchart TB
+    Browser[浏览器中的 Vue 3 页面]
+    Client[Axios 请求层<br/>自动携带 JWT]
+    API[FastAPI API 层]
+    Auth[JWT 鉴权与角色判断]
+    Graph[LangGraph 工作流]
+    QA[问答 Agent]
+    Assignment[作业评测 Agent]
+    Review[代码审查 Agent]
+    Defense[答辩 Agent]
+    Sandbox[一次性 Docker 沙箱]
+    Models[本地分类/Embedding/Reranker]
+    LLM[DeepSeek，可选密钥]
+    PG[(PostgreSQL)]
+    Milvus[(Milvus)]
+    MinIO[(MinIO)]
+
+    Browser --> Client --> API --> Auth
+    Auth --> Graph
+    Graph --> QA
+    Graph --> Assignment
+    Graph --> Review
+    Graph --> Defense
+    QA --> Models
+    QA --> Milvus
+    Milvus --> MinIO
+    QA -.生成回答.-> LLM
+    Assignment --> Sandbox
+    Assignment -.复用本地分析器.-> Review
+    Review -.可选语义评审.-> LLM
+    Defense -.动态追问与报告.-> LLM
+    API --> PG
+    Assignment --> PG
+    Review --> PG
+    Defense --> PG

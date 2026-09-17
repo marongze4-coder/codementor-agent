@@ -1,5 +1,5 @@
 # scripts/manual_tests/test_all_agents_health.py
-# 4 个 Agent 健康冒烟测试
+# CodeMentor 核心接口健康冒烟测试
 # 运行前提：后端已启动（uvicorn backend.main:app --reload --port 8000）
 
 import sys
@@ -31,7 +31,7 @@ if __name__ == "__main__":
         chunks = []
         with httpx.stream(
             "POST",
-            f"{BASE_URL}/qa/stream",
+            f"{BASE_URL}/qa/chat/stream",
             headers={**headers, "Content-Type": "application/json"},
             json={"session_id": "health001", "message": "什么是多态？"},
             timeout=30.0,
@@ -43,26 +43,26 @@ if __name__ == "__main__":
     except Exception as e:
         results.append(("QA Agent", f"❌ {e}"))
 
-    # 简历审查 Agent（仅测试接口响应，不上传文件）
+    # 综合作业三轨批改
     try:
-        resp = httpx.get(f"{BASE_URL}/resume/reviews", headers=headers, trust_env=False, timeout=10.0)
-        results.append(("Resume Agent", "✅" if resp.status_code == 200 else f"❌ HTTP {resp.status_code}"))
+        resp = httpx.get(f"{BASE_URL}/mixed-assignments/available", headers=headers, trust_env=False, timeout=10.0)
+        results.append(("Mixed Assignment", "✅" if resp.status_code == 200 else f"❌ HTTP {resp.status_code}"))
     except Exception as e:
-        results.append(("Resume Agent", f"❌ {e}"))
+        results.append(("Mixed Assignment", f"❌ {e}"))
 
-    # 试卷批改 Agent（查询历史列表）
+    # 编程实训
     try:
-        resp = httpx.get(f"{BASE_URL}/exam/submissions", headers=headers, trust_env=False, timeout=10.0)
-        results.append(("Exam Agent", "✅" if resp.status_code == 200 else f"❌ HTTP {resp.status_code}"))
+        resp = httpx.get(f"{BASE_URL}/assignments", headers=headers, trust_env=False, timeout=10.0)
+        results.append(("Coding Assignment", "✅" if resp.status_code == 200 else f"❌ HTTP {resp.status_code}"))
     except Exception as e:
-        results.append(("Exam Agent", f"❌ {e}"))
+        results.append(("Coding Assignment", f"❌ {e}"))
 
-    # 面试 Agent（查询历史列表）
+    # 代码审查
     try:
-        resp = httpx.get(f"{BASE_URL}/interview/sessions", headers=headers, trust_env=False, timeout=10.0)
-        results.append(("Interview Agent", "✅" if resp.status_code == 200 else f"❌ HTTP {resp.status_code}"))
+        resp = httpx.get(f"{BASE_URL}/code-review/reviews", headers=headers, trust_env=False, timeout=10.0)
+        results.append(("Code Review", "✅" if resp.status_code == 200 else f"❌ HTTP {resp.status_code}"))
     except Exception as e:
-        results.append(("Interview Agent", f"❌ {e}"))
+        results.append(("Code Review", f"❌ {e}"))
 
     print("\nAgent 健康检查结果：")
     for name, status in results:

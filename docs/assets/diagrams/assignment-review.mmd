@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant S as 学生
+    participant API as assignment.py
+    participant DB as PostgreSQL
+    participant G as Assignment Graph
+    participant D as Docker 沙箱
+    participant A as AST/规则分析器
+    participant T as 教师
+
+    S->>API: 上传 .py 文件
+    API->>API: 检查后缀、空文件、大小
+    API->>API: 保存源文件并计算 SHA-256
+    API->>DB: 新建 evaluating 提交记录
+    API-->>S: 202 + submission_id
+    API->>G: 后台启动评测
+    G->>DB: 加载作业和测试用例
+    par 两条分支并行
+        G->>D: 逐个运行功能测试
+        G->>A: 分析代码质量
+    end
+    D-->>G: 测试结果和功能分
+    A-->>G: 维度分和问题
+    G->>G: 按 rubric 合成自动建议分
+    G->>DB: 保存证据，状态改为 pending_review
+    T->>DB: 查看测试与代码问题
+    T->>API: 输入教师分数和评语
+    API->>DB: 保存 final_score，状态改为 published

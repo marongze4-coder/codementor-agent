@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -20,14 +22,17 @@ from backend.agents.exam.prompts import (
     SYSTEM_PROMPT,
     SUBJECTIVE_REVIEW_PROMPT,
     SUBJECTIVE_THINK_PROMPT,
-    CODE_REVIEW_PROMPT,
     WEAK_POINTS_ANALYSIS_PROMPT,
 )
 from backend.core.llm_factory import get_llm, get_structured_llm
+from backend.core.code_sandbox import SandboxTestCase, run_python_test, sandbox_status
+from backend.config import get_settings
 from backend.core.logger import get_logger
 from backend.dependencies import AsyncSessionLocal
+from backend.agents.code_review.nodes import analyze_code_locally
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 
 # ──────────────────────────────────────────────────────────────
@@ -213,7 +218,8 @@ async def load_questions_meta_node(state: ExamState) -> dict:
         result = await session.execute(
             text("""
                 SELECT id, question_no, question_type, content,
-                       correct_answer, score, knowledge_tag
+                       correct_answer, score, knowledge_tag,
+                       language, code_rubric
                 FROM questions
                 WHERE exam_id = :exam_id
                 ORDER BY question_no
@@ -251,7 +257,24 @@ async def load_questions_meta_node(state: ExamState) -> dict:
             scoring_points_rows = sp_result.mappings().all()
             # print(f'scoring_points_rows: {scoring_points_rows}')
 
-        # ── ③ 按 question_id 聚合得分点 ─────────────────────────────
+        # ── ③ 加载代码题测试用例 ────────────────────────────────────
+        code_test_rows = []
+        if question_ids:
+            param_names = [f":test_qid_{i}" for i in range(len(question_ids))]
+            qid_params = {f"test_qid_{i}": qid for i, qid in enumerate(question_ids)}
+            test_result = await session.execute(
+                text(f"""
+                    SELECT id, question_id, name, input_data, expected_output,
+                           timeout_seconds, weight, is_hidden
+                    FROM question_test_cases
+                    WHERE question_id IN ({", ".join(param_names)})
+                    ORDER BY question_id, created_at, id
+                """),
+                qid_params,
+            )
+            code_test_rows = test_result.mappings().all()
+
+        # ── ④ 按 question_id 聚合得分点与测试用例 ────────────────────
     sp_by_question: dict[str, list] = {}
     for sp in scoring_points_rows:
         qid = str(sp["question_id"])
@@ -261,12 +284,25 @@ async def load_questions_meta_node(state: ExamState) -> dict:
             "score": sp["point_score"],
         })
 
+    tests_by_question: dict[str, list] = {}
+    for case in code_test_rows:
+        qid = str(case["question_id"])
+        tests_by_question.setdefault(qid, []).append({
+            "id": str(case["id"]),
+            "name": case["name"],
+            "input_data": case["input_data"],
+            "expected_output": case["expected_output"],
+            "timeout_seconds": case["timeout_seconds"],
+            "weight": case["weight"],
+            "is_hidden": case["is_hidden"],
+        })
+
     # print(f'sp_by_question: {sp_by_question}')
     # print("*"*80)
     # parsed_by_no = {p["question_no"]: p for p in parsed}
     # print(f'parsed_by_no: {parsed_by_no}')
 
-    # ── ④ 以 DB 题目为主，合并解析结果 ─────────────────────────
+    # ── ⑤ 以 DB 题目为主，合并解析结果 ─────────────────────────
     parsed_by_no = {p["question_no"]: p for p in parsed}
     merged_questions = []
 
@@ -282,6 +318,9 @@ async def load_questions_meta_node(state: ExamState) -> dict:
             "scoring_points": sp_by_question.get(str(q["id"]), []),
             "full_score": q["score"],
             "knowledge_tag": q["knowledge_tag"] or "",
+            "language": q["language"] or "python",
+            "code_rubric": q["code_rubric"] or {"functional": 60, "quality": 40},
+            "test_cases": tests_by_question.get(str(q["id"]), []),
         })
 
     logger.info(
@@ -342,6 +381,21 @@ async def _run_objective_track(questions: list[dict]) -> list[dict]:
 
 async def _review_one_subjective(q: dict) -> dict:
     """批改单道简答题，两步流程：先 Think Tool 推理，再结构化评分。"""
+    if not settings.deepseek_api_key.strip():
+        return {
+            "question_id": q["question_id"],
+            "question_no": q["question_no"],
+            "question_type": "short_answer",
+            "knowledge_tag": q.get("knowledge_tag", ""),
+            "content": q.get("content", ""),
+            "student_answer": q.get("student_answer", ""),
+            "score": 0,
+            "full_score": q["full_score"],
+            "needs_review": True,
+            "confidence": 0.0,
+            "ai_feedback": "未配置大模型密钥，简答题不生成虚假评分，等待教师按得分点批改。",
+            "point_results": [],
+        }
     # 构造得分点描述文本
     scoring_points_text = "\n".join([
         f"  {i + 1}. [{sp['score']}分] {sp['desc']}"
@@ -447,113 +501,145 @@ async def _run_subjective_track(questions: list[dict]) -> list[dict]:
     return all_results
 
 
-# ── 第三轨：LLM（代码题）────────────────────────────
-# backend/agents/exam/nodes.py（接 6.6）
+# ── 第三轨：Docker 功能测试 + AST/确定性规则（代码题）────────────
 
 async def _run_code_track(questions: list[dict]) -> list[dict]:
     """
-    代码题批改入口：顺序逐题批改（代码题一般数量少，不必并行）。
+    代码题逐题批改。每道题内部并行运行教师测试用例，同时执行本地 AST/规则分析。
 
-    参数 questions：本卷里所有「代码题」的合并题目字典列表（来自 6.4 的合并结果，
-                    已按题型筛选，这里只会收到 question_type == "code" 的题）。
-    返回：每道代码题的批改结果字典组成的列表。
+    代码题通常数量少，因此题目之间顺序执行，避免同时创建过多 Docker 容器；
+    同一道题的多个测试用例使用 asyncio.gather 并行运行。
     """
-    if not questions:                       # 没有代码题（空列表）
-        return []                           # 直接返回空，省去后续循环
-    results = []                            # 收集每道题的批改结果
-    for q in questions:                     # 逐道代码题处理
-        results.append(await _review_one_code(q))   # 调用单题批改，await 等它出结果
-    return results                          # 返回全部代码题的批改结果
+    results = []
+    for q in questions:
+        results.append(await _review_one_code(q))
+    return results
 
 
 async def _review_one_code(q: dict) -> dict:
     """
-    批改「单道代码题」：交给大模型综合评估功能正确性 + 代码质量。
+    批改单道 Python 代码题：
+      1. 将代码写入一次性临时目录；
+      2. 在受限 Docker 容器中运行教师测试用例，得到功能分；
+      3. 使用 Python AST 和确定性规则得到代码质量分；
+      4. 按题目 code_rubric（默认 60/40）折算为本题得分。
 
-    参数 q：一道代码题的「合并题目字典」（就是 6.4 load_questions_meta_node 产出的那种），
-            本函数会读取它的下列键：
-        q["question_id"]     题目 ID（str），原样写进批改结果，方便回填数据库
-        q["question_no"]     题号（int）
-        q["content"]         题目内容（str），喂给 LLM 当评分依据
-        q["student_answer"]  学员提交的代码（str）
-        q["correct_answer"]  标准答案（str）：这道题的「满分参考实现」，给 LLM 当对照标杆
-        q["full_score"]      该题满分（int）
-        q["knowledge_tag"]   知识点标签（str，可能缺省，用 .get 兜底）
-    返回：一道代码题的批改结果字典（含 score / confidence / needs_review / quality_feedback 等）。
+    这里不调用大模型。测试证据与规则证据均可复现，最后仍交教师确认。
     """
-    student_code       = q["student_answer"]                # 取出学员代码
-    # print(f'student_code: {student_code}')
-    reference_solution = q.get("correct_answer", "") or ""  # 取出参考实现（缺省给空串）
-    # print(f'reference_solution: {reference_solution}')
+    student_code = q.get("student_answer", "") or ""
+    full_score = int(q.get("full_score", 0))
+    language = (q.get("language") or "python").lower()
+    raw_cases = q.get("test_cases", []) or []
 
-    # 交给大模型评分：返回（逐条评语, 得分, 把握度）三元组
-    feedback, score, confidence = await _llm_code_review(
-        question_content=q["content"],          # 题目内容
-        student_code=student_code,              # 学员代码
-        full_score=q["full_score"],             # 该题满分（评分上限）
-        reference_solution=reference_solution,  # 参考实现（对照标杆）
+    structure, local_scores = analyze_code_locally(student_code, "main.py")
+    quality_dimensions = [
+        result for key, result in local_scores.items() if key != "correctness"
+    ]
+    quality_score = round(
+        sum(item.score for item in quality_dimensions) / len(quality_dimensions)
+    ) if quality_dimensions else 0
+    issues = [
+        issue.model_dump()
+        for result in local_scores.values()
+        for issue in result.issues
+    ]
+
+    sandbox_ready, sandbox_reason = await sandbox_status()
+    test_results: list[dict] = []
+    functional_score = 0
+
+    if language != "python":
+        sandbox_ready = False
+        sandbox_reason = "language_not_supported"
+    elif student_code.strip() and raw_cases:
+        with tempfile.TemporaryDirectory(prefix="codementor_exam_code_") as temp_dir:
+            source_path = Path(temp_dir) / "main.py"
+            source_path.write_text(student_code, encoding="utf-8")
+            cases = [SandboxTestCase.model_validate(item) for item in raw_cases]
+            results = await asyncio.gather(
+                *(run_python_test(str(source_path), case) for case in cases)
+            )
+            test_results = []
+            for case, result in zip(cases, results):
+                item = result.model_dump()
+                item["is_hidden"] = case.is_hidden
+                item["weight"] = case.weight
+                test_results.append(item)
+            total_weight = sum(case.weight for case in cases)
+            passed_weight = sum(
+                case.weight for case, result in zip(cases, results) if result.passed
+            )
+            functional_score = round(100 * passed_weight / total_weight) if total_weight else 0
+    elif not raw_cases:
+        sandbox_reason = "no_test_cases"
+    else:
+        sandbox_reason = "empty_submission"
+
+    rubric = q.get("code_rubric") or {"functional": 60, "quality": 40}
+    if isinstance(rubric, str):
+        try:
+            rubric = json.loads(rubric)
+        except json.JSONDecodeError:
+            rubric = {"functional": 60, "quality": 40}
+    functional_weight = int(rubric.get("functional", 60))
+    quality_weight = int(rubric.get("quality", 40))
+    denominator = max(1, functional_weight + quality_weight)
+
+    if sandbox_ready and raw_cases:
+        automatic_percent = round(
+            (functional_score * functional_weight + quality_score * quality_weight)
+            / denominator
+        )
+    else:
+        automatic_percent = round(quality_score * quality_weight / denominator)
+
+    score = round(full_score * automatic_percent / 100)
+    failed_count = sum(1 for item in test_results if not item.get("passed"))
+    needs_review = (
+        not sandbox_ready
+        or not raw_cases
+        or failed_count > 0
+        or automatic_percent < 70
     )
-    # ── 组装批改结果字典返回 ───────────────────────────────────
+
+    feedback = [
+        f"功能测试 {functional_score}/100，代码质量 {quality_score}/100。",
+        f"按功能 {functional_weight}%、质量 {quality_weight}% 折算，本题自动得分 {score}/{full_score}。",
+    ]
+    if not sandbox_ready or not raw_cases:
+        feedback.append(f"代码沙箱结果未计入完整功能分（{sandbox_reason}），需要教师复核。")
+    elif failed_count:
+        feedback.append(f"共有 {failed_count} 个测试用例未通过。")
+    else:
+        feedback.append("全部教师测试用例通过。")
+    if issues:
+        feedback.append("AST/规则发现：" + "；".join(item["title"] for item in issues[:5]))
+
     return {
-        "question_id":      q["question_id"],           # 题目 ID
-        "question_no":      q["question_no"],           # 题号
-        "question_type":    "code",                     # 题型固定 code
-        "knowledge_tag":    q.get("knowledge_tag", ""), # 知识点（缺省空串）
-        "content":          q.get("content", ""),       # 题目内容（缺省空串）
-        "student_answer":   student_code,               # 学员代码
-        "score":            score,                      # 本题最终得分（0~full_score）
-        "full_score":       q["full_score"],            # 本题满分
-        "confidence":       confidence,                 # LLM 评分把握度（0~1）
-        "needs_review":     confidence < 0.7,           # 把握度低于 0.7 → 标记教师复核
-        "quality_feedback": feedback,                   # LLM 逐条评语（list[str]，下游会用到）
-        "ai_feedback":      "\n".join(feedback),        # 评语拼成单个字符串，方便展示
+        "question_id": q["question_id"],
+        "question_no": q["question_no"],
+        "question_type": "code",
+        "knowledge_tag": q.get("knowledge_tag", ""),
+        "content": q.get("content", ""),
+        "student_answer": student_code,
+        "correct_answer": q.get("correct_answer", ""),
+        "score": score,
+        "full_score": full_score,
+        "needs_review": needs_review,
+        "functional_score": functional_score,
+        "quality_score": quality_score,
+        "automatic_percent": automatic_percent,
+        "sandbox_ready": sandbox_ready,
+        "sandbox_reason": sandbox_reason,
+        "test_cases_passed": len(test_results) - failed_count,
+        "test_cases_total": len(test_results),
+        "test_results": test_results,
+        "code_structure": structure.model_dump(),
+        "dimension_scores": [value.model_dump() for value in local_scores.values()],
+        "issues": issues,
+        "quality_feedback": feedback,
+        "ai_feedback": "\n".join(feedback),
     }
-
-
-async def _llm_code_review(
-    question_content:   str,        # 题目内容
-    student_code:       str,        # 学员代码
-    full_score:         int,        # 该题满分（评分上限）
-    reference_solution: str = "",   # 参考实现（默认空串）
-) -> tuple[list[str], int, float]:
-    """
-    大模型综合评估代码：功能正确性 + 代码质量。
-
-    返回一个三元组 (feedback, score, confidence)：
-        feedback：  list[str]，逐条评语（功能正确性 + 四个质量维度）
-        score：     int，得分，范围 0 ~ full_score
-        confidence：float，LLM 自报的评分把握度，范围 0 ~ 1（越不确定越低）
-    """
-    # 用模板拼出完整 Prompt（把题目 / 参考实现 / 学员代码 / 满分填进去）
-    prompt = CODE_REVIEW_PROMPT.format(
-        question=question_content,                                  # {question}
-        reference_solution=reference_solution or "（无参考实现，仅按代码本身评估）",  # {reference_solution}，没有就填兜底语
-        code=student_code or "（未提交代码）",                       # {code}，没提交就填兜底语
-        full_score=full_score,                                      # {full_score}：满分制
-    )
-
-    llm      = get_llm("exam_code")             # 从 llm_factory 取「代码评估」用的模型实例
-    response = await llm.ainvoke([              # 异步调用大模型
-        SystemMessage(content=SYSTEM_PROMPT),   # 系统提示（统一人设/规则）
-        HumanMessage(content=prompt),           # 把上面拼好的 Prompt 作为用户消息
-    ])
-    # print(f'response: {response}')
-    # 取出回复纯文本，并去掉模型可能多带的 ```json 代码围栏，方便 json.loads
-    raw = _get_message_content(response).strip().replace("```json", "").replace("```", "").strip()
-    # print(f'raw: {raw}')
-    # print(json.loads(raw))
-    try:                                        # 解析可能失败，包 try
-        data       = json.loads(raw)            # 把回复解析成字典
-        feedback   = data.get("feedback", [])   # 取逐条评语列表（缺省空列表）
-        score      = min(int(data.get("score", 0)), full_score)  # 取分数，封顶到满分
-        confidence = float(data.get("confidence", 0))            # 取把握度（缺省 0）
-    except Exception:                           # 模型没返回合法 JSON
-        # JSON 解析失败时的降级：不崩，给 0 分 + 把握度 0（→ 必复核）+ 提示人工
-        feedback   = ["代码评估结果解析失败，请教师人工复核"]
-        score      = 0
-        confidence = 0.0
-
-    return feedback, score, confidence          # 返回（评语列表, 得分, 把握度）
 
 
 # backend/agents/exam/nodes.py（接 6.7）
@@ -567,7 +653,7 @@ async def run_three_tracks_node(state: ExamState) -> dict:
     三轨并行批改：
         第一轨：规则引擎（客观题：单选/多选/判断）
         第二轨：LLM 语义评分（简答题，按3题一组并行）
-        第三轨：LLM 代码质量评估（代码题，顺序执行）
+        第三轨：Docker 功能测试 + AST/规则质量分析（代码题）
 
     asyncio.gather(return_exceptions=True)：
         某一轨抛异常不会中断其他轨，异常作为返回值处理。
@@ -714,7 +800,7 @@ async def analyze_weak_points_node(state: ExamState) -> dict:
     llm_summary = ""
 
     questions_for_llm = tagged + untagged
-    if questions_for_llm:
+    if questions_for_llm and settings.deepseek_api_key.strip():
         wrong_desc = "\n".join([
             f"第{r['question_no']}题（{r['question_type']}，{r['score']}/{r['full_score']}分）："
             f"\n  题目：{r.get('content', r.get('ai_feedback', ''))[:200]}"
@@ -736,6 +822,8 @@ async def analyze_weak_points_node(state: ExamState) -> dict:
         except Exception as e:
             logger.warning("analyze_weak_points.llm_failed", error=str(e))
             llm_summary = "薄弱点分析失败，请教师根据错题情况人工判断。"
+    elif questions_for_llm:
+        llm_summary = "未配置大模型密钥，已按教师知识标签汇总失分题。"
 
     # print(f"*"*80)
     # print(f'llm_weak_points:{llm_weak_points}')

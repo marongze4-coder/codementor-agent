@@ -5,7 +5,7 @@ import asyncio                                   # 异步：用于超时控制�
 from functools import wraps                      # @wraps：装饰器里保留原函数的名字/文档
 from typing import Callable, Any, Optional       # 类型注解：可调用对象 / 任意 / 可选
 
-from backend.core.exceptions import (            # 引入 3.3 定义的异常（已去掉 Judge0 的 Sandbox 异常）
+from backend.core.exceptions import (
     LLMAPIError,
     MilvusConnectionError,
     InvalidInputError,
@@ -101,10 +101,7 @@ class AgentFallbackHandler:
         """根据 agent_type 选择对应的降级策略。"""
         fallback_map = {                              # 类型 → 降级方法 的映射表
             "qa":               cls._qa_fallback,
-            "exam_code":        cls._exam_code_fallback,
             "exam_subjective":  cls._exam_subjective_fallback,
-            "resume":           cls._resume_fallback,
-            "interview":        cls._interview_fallback,
         }
         handler = fallback_map.get(agent_type)        # 查表
         if handler:
@@ -122,16 +119,6 @@ class AgentFallbackHandler:
         }
 
     @classmethod
-    async def _exam_code_fallback(cls) -> dict:
-        """代码批改降级：评分服务不可用，标记需教师人工复核。"""
-        logger.info("fallback.exam_code_basic")
-        return {
-            "fallback_used": True,
-            "needs_teacher_review": True,
-            "fallback_note": "代码评分服务暂时不可用，已标记为需教师人工复核。",
-        }
-
-    @classmethod
     async def _exam_subjective_fallback(cls) -> dict:
         """简答题批改降级：标记需教师复核。"""
         logger.info("fallback.exam_subjective_basic")
@@ -141,34 +128,11 @@ class AgentFallbackHandler:
             "fallback_note": "AI 评分服务暂时不可用，已标记为需教师人工批改。",
         }
 
-    @classmethod
-    async def _resume_fallback(cls) -> dict:
-        """简历审查降级：提示服务不可用 / 检查文件。"""
-        logger.info("fallback.resume_service_unavailable")
-        return {
-            "fallback_used": True,
-            "content": "简历审查服务暂时不可用，请稍后重试。如持续失败，请检查上传的 PDF 文件是否完整。",
-            "structured_output": None,
-        }
-
-    @classmethod
-    async def _interview_fallback(cls) -> dict:
-        """面试降级：跳过深度分析，返回基础反馈。"""
-        logger.info("fallback.interview_basic_feedback")
-        return {
-            "fallback_used": True,
-            "content": "面试评估服务暂时不可用，已记录本次面试对话，请稍后查看报告。",
-            "structured_output": None,
-        }
-
-
 def _system_fallback_response(agent_type: str) -> dict:
     """第三层：系统级兜底。所有降级都失败后返回它，保证用户始终能收到响应。"""
     messages = {                                      # 按 agent_type 给不同的友好提示
         "qa":        "非常抱歉，智能问答服务暂时不可用，请稍后再试，或直接联系教师提问。",
-        "exam":      "非常抱歉，试卷批改服务暂时不可用，您的提交已保存，待服务恢复后将自动处理。",
-        "resume":    "非常抱歉，简历审查服务暂时不可用，请稍后重新上传。",
-        "interview": "非常抱歉，模拟面试服务暂时不可用，请稍后重新开始。",
+        "exam":      "非常抱歉，综合作业批改服务暂时不可用，您的提交已保存，请稍后重试。",
     }
     content = messages.get(agent_type, "服务暂时不可用，请稍后再试。")  # 找不到就用通用提示
     return {
@@ -208,7 +172,7 @@ if __name__ == '__main__':
 
 
     # ── ⑤ 三次全败 + 有降级策略 → 第二层 Agent 降级 ─────────────
-    # 以 qa 为代表；resume / interview / exam_code / exam_subjective 结构完全相同
+    # 以 qa 为代表；exam_subjective 使用同样的重试和降级框架
     @with_retry(agent_type="qa")
     async def qa_node_always_fail():
         raise LLMAPIError("Milvus 连接超时")

@@ -35,7 +35,6 @@ frontend/.vite/
 review/
 understant_sse/
 samples/
-backend/agents/resume/resume.json
 *.docx
 *.db
 *.sqlite

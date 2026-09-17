@@ -21,6 +21,8 @@ from backend.core.code_sandbox import sandbox_status
 
 
 REQUIRED_TABLES = {
+    "exams", "questions", "scoring_points", "question_test_cases",
+    "exam_submissions", "exam_reviews",
     "courses", "course_enrollments", "assignments", "assignment_test_cases",
     "code_submissions", "test_run_results", "assignment_reviews", "code_reviews",
     "defense_sessions",
@@ -55,7 +57,7 @@ async def main() -> None:
         raise RuntimeError("代码审查器自检失败")
 
     print("CodeMentor 自检通过")
-    print(f"数据库表：{len(REQUIRED_TABLES)} 个；课程：{course_count}；作业：{assignment_count}")
+    print(f"数据库核心表：{len(REQUIRED_TABLES)} 个；课程：{course_count}；编程实训：{assignment_count}")
     print(f"代码沙箱：{settings.sandbox_image}（{reason}）")
     print("代码审查：6 个维度")
 

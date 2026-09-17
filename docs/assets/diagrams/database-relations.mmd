@@ -1,0 +1,13 @@
+erDiagram
+    USERS ||--o{ COURSE_ENROLLMENTS : enrolls
+    USERS ||--o{ COURSES : creates
+    COURSES ||--o{ COURSE_ENROLLMENTS : contains
+    COURSES ||--o{ ASSIGNMENTS : owns
+    ASSIGNMENTS ||--o{ ASSIGNMENT_TEST_CASES : defines
+    USERS ||--o{ CODE_SUBMISSIONS : submits
+    ASSIGNMENTS ||--o{ CODE_SUBMISSIONS : receives
+    CODE_SUBMISSIONS ||--o{ TEST_RUN_RESULTS : produces
+    CODE_SUBMISSIONS ||--|| ASSIGNMENT_REVIEWS : has
+    USERS ||--o{ CODE_REVIEWS : requests
+    CODE_SUBMISSIONS o|--o{ DEFENSE_SESSIONS : supports
+    CODE_REVIEWS o|--o{ DEFENSE_SESSIONS : supports

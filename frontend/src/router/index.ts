@@ -37,6 +37,16 @@ const router = createRouter({
           component: () => import('@/views/qa/QAChatView.vue'),
         },
         {
+          path: 'mixed-assignments',
+          name: 'mixed-assignments',
+          component: () => import('@/views/exam/ExamSubmitView.vue'),
+        },
+        {
+          path: 'mixed-assignments/:submissionId',
+          name: 'mixed-assignment-result',
+          component: () => import('@/views/exam/ExamResultView.vue'),
+        },
+        {
           path: 'assignments',
           name: 'assignments',
           component: () => import('@/views/assignment/AssignmentListView.vue'),
@@ -77,6 +87,12 @@ const router = createRouter({
           path: 'teacher/assignment-review',
           name: 'teacher-assignment-review',
           component: () => import('@/views/teacher/AssignmentReviewView.vue'),
+          meta: { requiresTeacher: true },
+        },
+        {
+          path: 'teacher/mixed-assignment-review',
+          name: 'teacher-mixed-assignment-review',
+          component: () => import('@/views/teacher/ExamReviewView.vue'),
           meta: { requiresTeacher: true },
         },
         {

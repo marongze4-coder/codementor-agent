@@ -17,12 +17,57 @@ from backend.core.logger import get_logger
 
 router = APIRouter()
 logger = get_logger(__name__)
+MAX_WORD_UPLOAD_BYTES = 20 * 1024 * 1024
 
 # 模块级编译图（只执行一次，避免每次请求重新编译）
 _graph = build_exam_graph()
 
 # 持有 background task 引用，防止 asyncio GC 回收未完成的任务
 _background_tasks: set[asyncio.Task] = set()
+
+
+def _require_teacher(user: dict) -> None:
+    if user["role"] not in {"teacher", "admin"}:
+        raise HTTPException(status_code=403, detail="仅教师或管理员可以执行此操作")
+
+
+@router.get("/available")
+async def list_available_exams(
+    current_user: dict = Depends(get_current_user),
+):
+    """列出当前租户可提交的综合作业及其题型组成。"""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text("""
+                SELECT e.id, e.title, e.description, e.due_date,
+                       COUNT(q.id) AS question_count,
+                       COALESCE(SUM(q.score), 0) AS full_score,
+                       COUNT(q.id) FILTER (
+                           WHERE q.question_type IN ('single_choice','multi_choice','judge')
+                       ) AS objective_count,
+                       COUNT(q.id) FILTER (WHERE q.question_type = 'short_answer') AS subjective_count,
+                       COUNT(q.id) FILTER (WHERE q.question_type = 'code') AS code_count
+                FROM exams e
+                LEFT JOIN questions q ON q.exam_id = e.id
+                WHERE e.tenant_id = :tenant_id AND e.is_active = TRUE
+                GROUP BY e.id
+                ORDER BY e.created_at DESC
+            """),
+            {"tenant_id": current_user["tenant_id"]},
+        )
+        rows = result.mappings().all()
+    return [
+        {
+            **dict(row),
+            "id": str(row["id"]),
+            "question_count": int(row["question_count"] or 0),
+            "full_score": int(row["full_score"] or 0),
+            "objective_count": int(row["objective_count"] or 0),
+            "subjective_count": int(row["subjective_count"] or 0),
+            "code_count": int(row["code_count"] or 0),
+        }
+        for row in rows
+    ]
 
 
 @router.post("/submit", status_code=202)
@@ -32,7 +77,7 @@ async def submit_exam(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    学员提交作答 Word 试卷，触发 AI 三轨批改（异步后台）。
+    学员提交综合作业 Word 答题文件，触发三轨批改（异步后台）。
     立即返回 202 和 submission_id，批改在后台异步完成。
     """
     if not (file.filename or "").endswith(".docx"):
@@ -46,7 +91,11 @@ async def submit_exam(
     tmp_path      = os.path.join(tempfile.gettempdir(), f"{submission_id}.docx")
 
     # 把上传文件保存到临时目录
-    content = await file.read()
+    content = await file.read(MAX_WORD_UPLOAD_BYTES + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="答题文件为空")
+    if len(content) > MAX_WORD_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="答题文件超过 20MB 限制")
     with open(tmp_path, "wb") as f:
         f.write(content)
 
@@ -63,7 +112,7 @@ async def submit_exam(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"试卷 ID 不存在（{exam_id}）。"
+                f"综合作业 ID 不存在（{exam_id}）。"
                 "本地开发环境请先运行 python scripts/seed_data.py。"
             ),
         )
@@ -87,7 +136,7 @@ async def submit_exam(
                 os.remove(tmp_path)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="该试卷已有待确认或已发布的批改结果，无法重新提交。",
+                detail="该综合作业已有待确认或已发布的批改结果，无法重新提交。",
             )
         # ai_processing 或 submitted 状态：允许重提（删旧记录）
         existing_id = _existing_id
@@ -116,7 +165,6 @@ async def submit_exam(
             )
 
     config = build_config(current_user["user_id"], submission_id)
-    print(f'config: {config}')
 
     initial_state = {
         "messages":           [],
@@ -202,7 +250,7 @@ async def submit_exam(
     return {
         "submission_id": submission_id,
         "status":        "ai_processing",
-        "message":       "试卷已提交，AI 正在批改中，完成后等待教师确认。",
+        "message":       "综合作业已提交，三轨正在并行批改，完成后等待教师确认。",
     }
 
 
@@ -210,7 +258,7 @@ async def submit_exam(
 async def list_my_submissions(
     current_user: dict = Depends(get_current_user),
 ):
-    """学员查询自己所有的试卷提交记录"""
+    """学员查询自己的综合作业提交记录。"""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -299,6 +347,14 @@ async def get_my_submission(
             except Exception:
                 raw = {}
         final = r["final_score"] if r["final_score"] is not None else r["ai_score"]
+        raw_tests = raw.get("test_results", [])
+        safe_tests = []
+        for test_item in raw_tests:
+            test_item = dict(test_item)
+            if test_item.get("is_hidden"):
+                test_item["stdout"] = ""
+                test_item["stderr"] = "" if test_item.get("passed") else "隐藏测试未通过"
+            safe_tests.append(test_item)
         by_question.append({
             "question_id":       str(r["question_id"]),
             "question_no":       r["question_no"],
@@ -313,6 +369,16 @@ async def get_my_submission(
             "needs_review":      r["needs_review"],
             "point_results":     raw.get("point_results", []),
             "quality_feedback":  raw.get("quality_feedback", []),
+            "functional_score":  raw.get("functional_score"),
+            "quality_score":     raw.get("quality_score"),
+            "automatic_percent": raw.get("automatic_percent"),
+            "sandbox_ready":     raw.get("sandbox_ready"),
+            "sandbox_reason":    raw.get("sandbox_reason"),
+            "test_cases_passed": raw.get("test_cases_passed", 0),
+            "test_cases_total":  raw.get("test_cases_total", 0),
+            "test_results":      safe_tests,
+            "dimension_scores":  raw.get("dimension_scores", []),
+            "issues":            raw.get("issues", []),
         })
         total_score      += final or 0
         full_score_total += r["full_score"] or 0
@@ -341,12 +407,11 @@ async def get_submission_review(
     current_user:  dict = Depends(get_current_user),
 ):
     """教师获取 AI 预批改详情（从 MemorySaver 读取图暂停时的 State）"""
+    _require_teacher(current_user)
     config = {"configurable": {"thread_id": await _get_thread_id(submission_id)}}
 
     try:
         state_snapshot = await _graph.aget_state(config)
-        print(f'state: {state_snapshot}')
-        print(f'state: {state_snapshot.values}')
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"找不到该提交记录的批改状态：{e}")
 
@@ -386,6 +451,7 @@ async def get_pending_reviews(
     current_user: dict = Depends(get_current_user),
 ):
     """教师获取所有待确认的提交（status=pending_review）"""
+    _require_teacher(current_user)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             text("""
@@ -456,6 +522,7 @@ async def confirm_review(
     """
     教师确认批改结果，恢复 interrupt，触发 apply_teacher_decision → publish_results。
     """
+    _require_teacher(current_user)
     if req.action not in ("approve", "modify"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

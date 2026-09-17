@@ -34,7 +34,7 @@ settings = get_settings()
 # ── Agent 中文名映射（路由卡片展示用）──────────────────────────
 _AGENT_DISPLAY = {
     AgentType.QA:          "程序设计问答",
-    AgentType.ASSIGNMENT:  "编程作业评测",
+    AgentType.ASSIGNMENT:  "综合作业批改",
     AgentType.CODE_REVIEW: "代码质量审查",
     AgentType.DEFENSE:     "项目答辩",
 }
@@ -44,9 +44,9 @@ _AGENT_DISPLAY = {
 # 而是返回引导卡片，让前端把用户导到对应功能页。
 _GUIDANCE = {
     AgentType.ASSIGNMENT: {
-        "message": "检测到你要提交编程作业。请前往「编程实训」选择作业并上传 Python 源文件，系统会运行测试用例并生成质量报告。",
-        "action_label": "前往编程实训",
-        "action_url": "/assignments",
+        "message": "检测到你要提交课程作业。请前往「综合作业」提交答题文件，系统会并行批改客观题、简答题和代码题。",
+        "action_label": "前往综合作业",
+        "action_url": "/mixed-assignments",
     },
     AgentType.CODE_REVIEW: {
         "message": "检测到你需要审查代码。请前往「代码审查」上传源文件，系统会从正确性、复杂度、规范、可维护性、健壮性和安全性六个维度分析。",
@@ -383,16 +383,16 @@ async def unified_chat_stream(
             yield _sse({
                 "type":     "pipeline_plan",
                 "title":    "程序设计实训闭环",
-                "intro":    "建议先完成编程作业，再查看代码质量问题，最后基于真实提交进行项目答辩。",
+                "intro":    "建议先完成综合作业，再查看代码质量问题，最后基于真实提交进行项目答辩。",
                 "steps": [
                     {
                         "step":         1,
                         "agent_type":   "assignment",
-                        "label":        "编程作业评测",
-                        "desc":         "上传 Python 源文件，隔离运行教师测试用例并生成自动评分",
-                        "action_label": "提交编程作业",
-                        "action_url":   "/assignments",
-                        "tip":          "先获得功能测试和代码质量基线",
+                        "label":        "综合作业三轨批改",
+                        "desc":         "客观题规则判分、简答题按得分点语义评分，代码题执行 Docker 测试与 AST 分析",
+                        "action_label": "提交综合作业",
+                        "action_url":   "/mixed-assignments",
+                        "tip":          "先获得逐题证据与自动预评分，再由教师确认",
                     },
                     {
                         "step":         2,

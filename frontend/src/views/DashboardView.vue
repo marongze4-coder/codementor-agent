@@ -27,7 +27,7 @@
       </el-col>
     </el-row>
 
-    <!-- 四个独立功能入口 -->
+    <!-- 核心功能入口 -->
     <el-row :gutter="16" class="feature-cards">
       <el-col :span="6" v-for="card in featureCards" :key="card.route">
         <el-card
@@ -61,6 +61,13 @@ const featureCards = [
     desc: '结合课程知识库解答语法、算法与工程实践问题',
     action: '开始问答',
     route: '/qa',
+  },
+  {
+    icon: '📚',
+    title: '综合作业',
+    desc: '客观题、简答题和代码题三轨并行批改，教师统一确认',
+    action: '提交作业',
+    route: '/mixed-assignments',
   },
   {
     icon: '📝',

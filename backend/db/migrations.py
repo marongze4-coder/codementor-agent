@@ -32,14 +32,34 @@ _MIGRATIONS: list[tuple[str, str]] = [
         "ON exam_submissions (student_id, created_at DESC)",
     ),
     (
-        "idx_resume_reviews_student_created",
-        "CREATE INDEX IF NOT EXISTS idx_resume_reviews_student_created "
-        "ON resume_reviews (student_id, created_at DESC)",
+        "questions.language",
+        "ALTER TABLE questions ADD COLUMN IF NOT EXISTS language VARCHAR(32) NOT NULL DEFAULT 'python'",
     ),
     (
-        "idx_interview_sessions_student_created",
-        "CREATE INDEX IF NOT EXISTS idx_interview_sessions_student_created "
-        "ON interview_sessions (student_id, created_at DESC)",
+        "questions.code_rubric",
+        "ALTER TABLE questions ADD COLUMN IF NOT EXISTS code_rubric JSONB NOT NULL "
+        "DEFAULT jsonb_build_object('functional', 60, 'quality', 40)",
+    ),
+    (
+        "question_test_cases",
+        """
+        CREATE TABLE IF NOT EXISTS question_test_cases (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            name VARCHAR(128) NOT NULL,
+            input_data TEXT NOT NULL DEFAULT '',
+            expected_output TEXT NOT NULL,
+            timeout_seconds INT NOT NULL DEFAULT 3 CHECK (timeout_seconds BETWEEN 1 AND 30),
+            weight INT NOT NULL DEFAULT 1 CHECK (weight > 0),
+            is_hidden BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    ),
+    (
+        "idx_question_test_cases_question_id",
+        "CREATE INDEX IF NOT EXISTS idx_question_test_cases_question_id "
+        "ON question_test_cases (question_id)",
     ),
     (
         "courses",

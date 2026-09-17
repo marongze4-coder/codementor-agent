@@ -1,6 +1,6 @@
 <template>
   <div class="exam-result">
-    <el-page-header @back="router.push('/exam')" title="返回" content="批改结果" />
+    <el-page-header @back="router.push('/mixed-assignments')" title="返回" content="综合作业批改结果" />
 
     <div v-if="loading" class="loading-state">
       <el-skeleton :rows="8" animated />
@@ -24,7 +24,7 @@
               {{ review.pre_review_summary?.total_score ?? '--' }}
               <span class="score-full">/ {{ review.pre_review_summary?.full_score ?? '--' }}</span>
             </div>
-            <div class="score-label">{{ review.status === 'published' ? '最终得分' : 'AI 预评分' }}</div>
+            <div class="score-label">{{ review.status === 'published' ? '最终得分' : '自动预评分' }}</div>
           </el-card>
         </el-col>
         <el-col :span="18" v-if="review.weak_points?.length">
@@ -73,7 +73,26 @@
             <div class="q-detail">
               <div class="q-row"><b>学员答案：</b>{{ q.student_answer }}</div>
               <div v-if="q.correct_answer" class="q-row"><b>参考答案：</b>{{ q.correct_answer }}</div>
-              <div class="q-row"><b>AI 反馈：</b>{{ q.ai_feedback }}</div>
+              <div class="q-row"><b>自动批改反馈：</b>{{ q.ai_feedback }}</div>
+              <template v-if="q.question_type === 'code'">
+                <el-descriptions border :column="3" size="small" class="code-scores">
+                  <el-descriptions-item label="功能测试">{{ q.functional_score ?? 0 }}/100</el-descriptions-item>
+                  <el-descriptions-item label="代码质量">{{ q.quality_score ?? 0 }}/100</el-descriptions-item>
+                  <el-descriptions-item label="代码综合">{{ q.automatic_percent ?? 0 }}/100</el-descriptions-item>
+                </el-descriptions>
+                <el-table v-if="q.test_results?.length" :data="q.test_results" size="small" class="code-table">
+                  <el-table-column prop="name" label="测试用例" />
+                  <el-table-column label="结果" width="90">
+                    <template #default="{ row }"><el-tag :type="row.passed ? 'success' : 'danger'" size="small">{{ row.passed ? '通过' : '失败' }}</el-tag></template>
+                  </el-table-column>
+                  <el-table-column prop="duration_ms" label="耗时(ms)" width="100" />
+                  <el-table-column prop="stderr" label="错误信息" />
+                </el-table>
+                <div v-if="q.issues?.length" class="q-row">
+                  <b>AST/规则问题：</b>
+                  <ul><li v-for="issue in q.issues" :key="`${issue.title}-${issue.line}`">{{ issue.title }}<span v-if="issue.line">（第 {{ issue.line }} 行）</span>：{{ issue.suggestion }}</li></ul>
+                </div>
+              </template>
               <div v-if="q.teacher_comment" class="q-row teacher-comment">
                 <b>教师批注：</b>{{ q.teacher_comment }}
               </div>
@@ -104,8 +123,8 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null
 const statusTitle = computed(() => {
   if (!review.value) return ''
   if (review.value.status === 'published') return '✅ 教师已确认发布，以下为最终成绩'
-  if (review.value.status === 'pending_review') return '⏳ AI 批改完成，等待教师确认'
-  return '🔄 AI 正在批改中，请稍候...'
+  if (review.value.status === 'pending_review') return '⏳ 三轨批改完成，等待教师确认'
+  return '🔄 客观题、简答题和代码题正在并行批改，请稍候...'
 })
 
 const statusAlertType = computed(() => {
@@ -165,4 +184,6 @@ onUnmounted(stopPoll)
 .q-detail { padding: 8px 0; }
 .q-row { margin-bottom: 8px; font-size: 14px; line-height: 1.6; }
 .teacher-comment { color: #d46b08; background: #fff7e6; padding: 6px 10px; border-radius: 4px; }
+.code-scores { margin: 12px 0; }
+.code-table { margin: 10px 0; }
 </style>

@@ -4,7 +4,7 @@
 
 ### 程序设计课程智能实训与评测平台
 
-从“答疑”延伸到“提交、运行、审查、复核与答辩”的多 Agent 课程实训系统。
+从“答疑”延伸到“综合作业、代码运行、质量审查、教师复核与答辩”的多 Agent 课程实训系统。
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Async-009688?logo=fastapi&logoColor=white)
@@ -24,7 +24,7 @@ CodeMentor Agent 面向程序设计课程中的四类核心问题：课程答疑
 平台将业务拆分为四个职责明确的 Agent，并使用结构化数据把它们连接起来：
 
 - **程序设计问答 Agent**：基于教师课程资料完成 RAG 问答，返回可追溯来源。
-- **编程作业评测 Agent**：在受限 Docker 容器中运行教师测试用例，并汇总代码质量结果。
+- **综合作业批改 Agent**：客观题、简答题和代码题三轨并行；代码题额外执行 Docker 测试与 AST/规则分析。
 - **代码质量审查 Agent**：通过 AST、确定性规则和可选的大模型评审输出六维代码报告。
 - **项目答辩 Agent**：关联学生真实提交、测试结果和代码问题，按五个阶段持续追问。
 
@@ -32,22 +32,7 @@ CodeMentor Agent 面向程序设计课程中的四类核心问题：课程答疑
 
 ## 核心业务流程
 
-```mermaid
-flowchart LR
-    T[教师创建课程与作业] --> C[配置公开和隐藏测试用例]
-    C --> S[学生提交 Python 代码]
-    S --> F{并行评测}
-    F --> D[Docker 功能测试]
-    F --> Q[代码质量分析]
-    D --> M[汇总功能分、质量分与薄弱点]
-    Q --> M
-    M --> H[教师查看证据并确认成绩]
-    H --> P[发布正式结果]
-    P --> R[学生修改代码]
-    R --> S
-    P --> V[关联本次提交开始项目答辩]
-    V --> O[生成答辩记录与总结报告]
-```
+![综合作业三轨批改流程](docs/assets/diagrams/mixed-assignment-flow.png)
 
 > 核心原则：确定的事情交给规则，不确定的事情交给模型，高风险的事情交给人工确认。
 
@@ -56,43 +41,19 @@ flowchart LR
 | Agent | 主要输入 | 核心流程 | 主要输出 |
 |---|---|---|---|
 | 程序设计问答 | 学生问题、课程编号、会话历史 | 问题分类 → 混合召回 → 精排 → 置信度路由 | 回答、引用来源、会话记忆 |
-| 编程作业评测 | 作业、教师测试用例、学生代码 | Docker 测试与质量分析并行 → 加权汇总 → 教师复核 | 测试证据、建议分、最终成绩 |
+| 综合作业批改 | 作业题目、得分点、代码测试、学生答案 | 客观/简答/代码三轨并行 → 汇总 → 教师复核 | 逐题证据、建议分、最终成绩 |
 | 代码质量审查 | 上传代码或已有提交 | AST 与本地规则 → 六维评审 → 问题去重排序 | 维度分、问题行号、严重程度、修改建议 |
 | 项目答辩 | 作业提交、测试结果、审查报告 | 五阶段状态机 → 连续追问 → 条件结束 | 会话记录、答辩总结、待评价状态 |
 
 ### 作业评测与代码审查为什么不是重复功能？
 
-- **作业评测回答“这次作业如何判定”**：必须关联教师作业和测试用例，会真实运行代码，并进入教师成绩确认流程。
+- **综合作业批改回答“这次课程作业如何判定”**：客观题规则判分、简答题按得分点评审、代码题真实运行，并进入教师成绩确认流程。
 - **代码审查回答“这份代码写得怎么样”**：可以独立分析代码，重点解释复杂度、规范、维护性、健壮性和安全问题。
 - 作业评测会复用代码质量分析能力，但只消费其评分和薄弱点；独立审查页面则提供完整问题报告。
 
 ## 技术架构
 
-```mermaid
-flowchart TB
-    UI[Vue 3 + TypeScript<br/>学生端 / 教师端] --> API[FastAPI API 层<br/>Pydantic + JWT]
-    API --> ROUTER[统一入口与意图路由]
-    ROUTER --> QA[程序设计问答 Agent]
-    ROUTER --> ASSIGN[编程作业评测 Agent]
-    ROUTER --> REVIEW[代码质量审查 Agent]
-    ROUTER --> DEFENSE[项目答辩 Agent]
-
-    QA --> RAG[BGE-M3 + Milvus + Reranker]
-    ASSIGN --> SANDBOX[Docker 代码沙箱]
-    ASSIGN -.复用.-> REVIEW
-    ASSIGN -.评测结果.-> DEFENSE
-    REVIEW -.代码问题.-> DEFENSE
-
-    QA --> DB[(PostgreSQL)]
-    ASSIGN --> DB
-    REVIEW --> DB
-    DEFENSE --> DB
-
-    CORE[LLM Factory / Retry / Logger / Memory] -.公共能力.-> QA
-    CORE -.公共能力.-> ASSIGN
-    CORE -.公共能力.-> REVIEW
-    CORE -.公共能力.-> DEFENSE
-```
+![CodeMentor 技术架构](docs/assets/diagrams/technical-architecture.png)
 
 ## 关键实现
 
@@ -129,7 +90,8 @@ flowchart TB
 backend/
 ├─ agents/
 │  ├─ qa/                 # 程序设计知识问答 Agent
-│  ├─ assignment/         # 编程作业评测 Agent
+│  ├─ exam/               # 综合作业三轨批改 Agent
+│  ├─ assignment/         # 编程专项实训 Agent
 │  ├─ code_review/        # 六维代码审查 Agent
 │  └─ defense/            # 项目答辩 Agent
 ├─ api/v1/                # FastAPI 业务接口
@@ -182,7 +144,9 @@ docker compose --env-file .env.local up -d
 python -c "import asyncio; from backend.db.migrations import run_migrations; asyncio.run(run_migrations())"
 python scripts/seed_data.py
 python scripts/seed_coding_course.py
+python scripts/seed_standard_exam.py
 python scripts/verify_codementor.py
+python scripts/verify_mixed_assignment.py
 ```
 
 ### 5. 启动后端
@@ -210,7 +174,7 @@ npm run dev
 
 - Python 模块编译检查通过。
 - Vue 3 前端生产构建通过。
-- 演示作业的 3 个 Docker 测试用例已跑通。
+- 综合作业客观题规则轨、无密钥简答题复核降级、代码题 3 个 Docker 用例与 AST 六维分析已跑通。
 - 自动建议分、教师复核、成绩发布与项目答辩链路已验证。
 - 无模型密钥时，本地代码审查与沙箱测试仍可执行。
 

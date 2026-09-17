@@ -6,6 +6,18 @@ export interface ExamSubmitResponse {
   message: string
 }
 
+export interface AvailableExam {
+  id: string
+  title: string
+  description?: string
+  due_date?: string
+  question_count: number
+  full_score: number
+  objective_count: number
+  subjective_count: number
+  code_count: number
+}
+
 export interface PendingReviewItem {
   submission_id: string
   student_name: string
@@ -47,6 +59,22 @@ export interface ReviewDetail {
       test_cases_total?: number
       sandbox_skipped?: boolean
       quality_feedback?: string[]
+      functional_score?: number
+      quality_score?: number
+      automatic_percent?: number
+      sandbox_ready?: boolean
+      sandbox_reason?: string
+      test_results?: Array<{
+        name: string
+        passed: boolean
+        duration_ms?: number
+        stdout?: string
+        stderr?: string
+        error_type?: string
+        is_hidden?: boolean
+      }>
+      dimension_scores?: Array<{ dimension: string; score: number; summary?: string }>
+      issues?: Array<{ dimension: string; severity: string; title: string; line?: number; evidence?: string; suggestion?: string }>
       teacher_comment?: string
       final_score?: number
     }>
@@ -83,27 +111,30 @@ export interface MySubmissionItem {
 }
 
 export const examApi = {
+  available: () =>
+    client.get<AvailableExam[]>('/mixed-assignments/available'),
+
   listMySubmissions: () =>
-    client.get<{ items: MySubmissionItem[] }>('/exam/my-submissions'),
+    client.get<{ items: MySubmissionItem[] }>('/mixed-assignments/my-submissions'),
 
   submit: (examId: string, file: File) => {
     const form = new FormData()
     form.append('exam_id', examId)
     form.append('file', file)
-    return client.post<ExamSubmitResponse>('/exam/submit', form, {
+    return client.post<ExamSubmitResponse>('/mixed-assignments/submit', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
 
   getPendingReviews: () =>
-    client.get<{ items: PendingReviewItem[]; total: number }>('/exam/pending-reviews'),
+    client.get<{ items: PendingReviewItem[]; total: number }>('/mixed-assignments/pending-reviews'),
 
   getSubmissionReview: (submissionId: string) =>
-    client.get<ReviewDetail>(`/exam/my-submissions/${submissionId}`),
+    client.get<ReviewDetail>(`/mixed-assignments/my-submissions/${submissionId}`),
 
   getSubmissionReviewTeacher: (submissionId: string) =>
-    client.get<ReviewDetail>(`/exam/submissions/${submissionId}/review`),
+    client.get<ReviewDetail>(`/mixed-assignments/submissions/${submissionId}/review`),
 
   confirmReview: (submissionId: string, data: ConfirmRequest) =>
-    client.post<ConfirmResponse>(`/exam/submissions/${submissionId}/confirm`, data),
+    client.post<ConfirmResponse>(`/mixed-assignments/submissions/${submissionId}/confirm`, data),
 }

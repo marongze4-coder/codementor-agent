@@ -19,6 +19,11 @@
         <span>编程实训</span>
       </RouterLink>
 
+      <RouterLink to="/mixed-assignments" class="nav-item" :class="{ 'nav-item--active': isActive('/mixed-assignments') }">
+        <el-icon><Tickets /></el-icon>
+        <span>综合作业</span>
+      </RouterLink>
+
       <RouterLink to="/code-review" class="nav-item" :class="{ 'nav-item--active': isActive('/code-review') }">
         <el-icon><Postcard /></el-icon>
         <span>代码审查</span>
@@ -40,6 +45,10 @@
           <el-icon><EditPen /></el-icon>
           <span>成绩确认</span>
         </RouterLink>
+        <RouterLink to="/teacher/mixed-assignment-review" class="nav-item" :class="{ 'nav-item--active': isActive('/teacher/mixed-assignment-review') }">
+          <el-icon><Checked /></el-icon>
+          <span>三轨批改确认</span>
+        </RouterLink>
         <RouterLink to="/teacher/knowledge-pending" class="nav-item" :class="{ 'nav-item--active': isActive('/teacher/knowledge-pending') }">
           <el-icon><Collection /></el-icon>
           <span>知识库待补充</span>
@@ -53,7 +62,7 @@
 import { useRoute } from 'vue-router'
 import {
   House, ChatDotRound, Document, Postcard,
-  Microphone, EditPen, Collection, Tools,
+  Microphone, EditPen, Collection, Tools, Tickets, Checked,
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -61,7 +70,7 @@ const auth = useAuthStore()
 const route = useRoute()
 
 // 仅用于子路由高亮（纯视觉反馈，不参与导航逻辑）
-// RouterLink 的 active-class 基于路由记录层级，不覆盖平级子路由（如 /resume/:id）
+// RouterLink 的 active-class 基于路由记录层级，不覆盖平级详情路由
 function isActive(prefix: string) {
   return route.path === prefix || route.path.startsWith(prefix + '/')
 }

@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant U as 用户
+    participant V as Vue 登录页
+    participant A as /api/v1/auth/login
+    participant DB as users 表
+
+    U->>V: 输入用户名/邮箱和密码
+    V->>A: POST 登录信息
+    A->>DB: 参数化 SQL 查询用户
+    DB-->>A: 用户、密码哈希、角色、tenant_id
+    A->>A: 在线程池校验 bcrypt 密码
+    A->>A: 签发带 sub/role/tenant_id/exp 的 JWT
+    A-->>V: access_token、role、user_id
+    V->>V: 保存 token

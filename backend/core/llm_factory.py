@@ -36,9 +36,6 @@ _AGENT_MODEL_ROUTING: dict[str, str] = {
     "assignment":       "deepseek-chat",   # 编程作业评测
     "defense":          "deepseek-chat",   # 项目答辩模拟
     "exam_subjective":  "deepseek-chat",   # 试卷-简答题批改
-    "exam_code":        "deepseek-chat",   # 试卷-代码题批改（coder 已并入 chat）
-    "resume":           "deepseek-chat",   # 简历审查
-    "interview":        "deepseek-chat",   # 模拟面试
     "intent":           "deepseek-chat",   # 意图识别
     "summarize":        "deepseek-chat",   # 对话摘要压缩
 }
@@ -56,7 +53,7 @@ class LLMFactory:
 
     用法：
         llm = LLMFactory.get_llm("qa")                              # 普通模型
-        structured = LLMFactory.get_structured_llm("resume", 某Schema)  # 结构化输出模型
+        structured = LLMFactory.get_structured_llm("code_review", 某Schema)  # 结构化输出模型
         response = await llm.ainvoke(messages)
     """
 
@@ -175,7 +172,6 @@ if __name__ == '__main__':
 
 
     asyncio.run(main())
-
 
 
 
